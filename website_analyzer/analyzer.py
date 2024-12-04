@@ -18,6 +18,16 @@ import time
 import concurrent.futures
 import platform
 import re
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+import robotexclusionrulesparser
+import xmltodict
+from PIL import Image
+from resizeimage import resizeimage
+import html5lib
+import os
 
 init()  # Initialize colorama for colored output
 
@@ -26,6 +36,7 @@ class WebsiteAnalyzer:
         self.url = self._normalize_url(url)
         self.domain = urlparse(self.url).netloc
         self.results = {}
+        self.timeout = 10  # Default timeout for requests
 
     def _normalize_url(self, url):
         if not url.startswith(('http://', 'https://')):
@@ -202,6 +213,315 @@ class WebsiteAnalyzer:
         except Exception as e:
             print(f"Port scan error: {str(e)}")
 
+    def analyze_robots_txt(self):
+        """Analyze robots.txt file and return its content and rules."""
+        try:
+            robots_url = f"{self.url}/robots.txt"
+            response = requests.get(robots_url, timeout=self.timeout)
+            if response.status_code == 200:
+                parser = robotexclusionrulesparser.RobotExclusionRulesParser()
+                parser.parse(response.text)
+                
+                rules = {
+                    'allowed': [],
+                    'disallowed': [],
+                    'sitemaps': []
+                }
+                
+                for line in response.text.split('\n'):
+                    if 'Allow:' in line:
+                        rules['allowed'].append(line.split('Allow:')[1].strip())
+                    elif 'Disallow:' in line:
+                        rules['disallowed'].append(line.split('Disallow:')[1].strip())
+                    elif 'Sitemap:' in line:
+                        rules['sitemaps'].append(line.split('Sitemap:')[1].strip())
+                
+                return {
+                    'status': 'found',
+                    'content': response.text,
+                    'rules': rules
+                }
+            return {'status': 'not_found'}
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    def analyze_sitemap(self):
+        """Analyze XML sitemap and return its structure."""
+        try:
+            # First check robots.txt for sitemap
+            robots_analysis = self.analyze_robots_txt()
+            sitemaps = []
+            
+            if robots_analysis['status'] == 'found':
+                sitemaps.extend(robots_analysis['rules']['sitemaps'])
+            
+            # Also check common sitemap locations
+            common_paths = ['/sitemap.xml', '/sitemap_index.xml', '/sitemap/sitemap.xml']
+            
+            for path in common_paths:
+                try:
+                    response = requests.get(f"{self.url}{path}", timeout=self.timeout)
+                    if response.status_code == 200:
+                        sitemap_dict = xmltodict.parse(response.text)
+                        sitemaps.append({
+                            'url': f"{self.url}{path}",
+                            'content': sitemap_dict
+                        })
+                except:
+                    continue
+            
+            return {
+                'status': 'found' if sitemaps else 'not_found',
+                'sitemaps': sitemaps
+            }
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    def check_mobile_responsiveness(self):
+        """Check website's mobile responsiveness."""
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            # Test different viewport sizes
+            viewports = {
+                'mobile': (375, 667),  # iPhone 8
+                'tablet': (768, 1024),  # iPad
+                'desktop': (1920, 1080)  # Full HD
+            }
+            
+            results = {}
+            
+            for device, (width, height) in viewports.items():
+                driver.set_window_size(width, height)
+                driver.get(self.url)
+                
+                # Take screenshot
+                screenshot_path = f"screenshot_{device}.png"
+                driver.save_screenshot(screenshot_path)
+                
+                # Analyze viewport meta tag
+                viewport_meta = driver.execute_script(
+                    "return document.querySelector('meta[name=\"viewport\"]')"
+                    "?.getAttribute('content')")
+                
+                # Check for mobile-specific elements
+                has_media_queries = driver.execute_script(
+                    "return window.getComputedStyle(document.documentElement)"
+                    ".content.includes('media')")
+                
+                results[device] = {
+                    'viewport_meta': viewport_meta,
+                    'has_media_queries': has_media_queries,
+                    'screenshot': screenshot_path
+                }
+            
+            driver.quit()
+            return results
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    def analyze_accessibility(self):
+        """Analyze website's accessibility compliance."""
+        try:
+            # Analyze specific accessibility features
+            response = requests.get(self.url, timeout=self.timeout)
+            soup = BeautifulSoup(response.text, 'html5lib')
+            
+            custom_checks = {
+                'has_alt_texts': all(img.has_attr('alt') for img in soup.find_all('img')),
+                'has_aria_labels': bool(soup.find_all(attrs={'aria-label': True})),
+                'has_skip_links': bool(soup.find('a', href='#main-content')),
+                'color_contrast': self._check_color_contrast(soup),
+                'keyboard_navigation': self._check_keyboard_navigation(soup)
+            }
+            
+            # Calculate basic accessibility score
+            score = 0
+            if custom_checks['has_alt_texts']:
+                score += 25
+            if custom_checks['has_aria_labels']:
+                score += 25
+            if custom_checks['has_skip_links']:
+                score += 25
+            if custom_checks['keyboard_navigation']['focusable_elements'] > 0:
+                score += 25
+            
+            return {
+                'score': score,
+                'custom_checks': custom_checks
+            }
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    def calculate_seo_score(self):
+        """Calculate SEO score based on various factors."""
+        try:
+            response = requests.get(self.url, timeout=self.timeout)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            factors = {
+                'title': {
+                    'exists': bool(soup.title),
+                    'length': len(soup.title.string) if soup.title else 0,
+                    'score': 0
+                },
+                'meta_description': {
+                    'exists': bool(soup.find('meta', {'name': 'description'})),
+                    'length': len(soup.find('meta', {'name': 'description'})['content'])
+                    if soup.find('meta', {'name': 'description'}) else 0,
+                    'score': 0
+                },
+                'headings': {
+                    'h1_count': len(soup.find_all('h1')),
+                    'h2_count': len(soup.find_all('h2')),
+                    'score': 0
+                },
+                'images': {
+                    'total': len(soup.find_all('img')),
+                    'with_alt': len([img for img in soup.find_all('img') if img.get('alt')]),
+                    'score': 0
+                },
+                'links': {
+                    'internal': len([a for a in soup.find_all('a') if a.get('href') 
+                                  and self.domain in a.get('href')]),
+                    'external': len([a for a in soup.find_all('a') if a.get('href') 
+                                   and self.domain not in a.get('href')]),
+                    'score': 0
+                }
+            }
+            
+            # Score calculations
+            factors['title']['score'] = self._calculate_title_score(factors['title'])
+            factors['meta_description']['score'] = self._calculate_meta_score(
+                factors['meta_description'])
+            factors['headings']['score'] = self._calculate_headings_score(factors['headings'])
+            factors['images']['score'] = self._calculate_images_score(factors['images'])
+            factors['links']['score'] = self._calculate_links_score(factors['links'])
+            
+            # Calculate overall score
+            total_score = sum(factor['score'] for factor in factors.values()) / len(factors)
+            
+            return {
+                'overall_score': round(total_score, 2),
+                'factors': factors
+            }
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    def capture_screenshot(self, full_page=True):
+        """Capture a screenshot of the website."""
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            driver.get(self.url)
+            
+            if full_page:
+                # Get page dimensions
+                height = driver.execute_script("return document.body.scrollHeight")
+                width = driver.execute_script("return document.body.scrollWidth")
+                driver.set_window_size(width, height)
+            
+            screenshot_path = "website_screenshot.png"
+            driver.save_screenshot(screenshot_path)
+            
+            # Optimize screenshot
+            with Image.open(screenshot_path) as img:
+                # Resize if too large
+                if img.size[0] > 1920:
+                    img = resizeimage.resize_width(img, 1920)
+                # Compress
+                img.save(screenshot_path, 'PNG', optimize=True)
+            
+            driver.quit()
+            return {
+                'status': 'success',
+                'path': screenshot_path,
+                'size': os.path.getsize(screenshot_path)
+            }
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    def _calculate_title_score(self, title_data):
+        """Calculate SEO score for title."""
+        score = 0
+        if title_data['exists']:
+            score += 50
+            length = title_data['length']
+            if 30 <= length <= 60:
+                score += 50
+            elif 20 <= length <= 70:
+                score += 30
+        return score
+
+    def _calculate_meta_score(self, meta_data):
+        """Calculate SEO score for meta description."""
+        score = 0
+        if meta_data['exists']:
+            score += 50
+            length = meta_data['length']
+            if 120 <= length <= 160:
+                score += 50
+            elif 80 <= length <= 200:
+                score += 30
+        return score
+
+    def _calculate_headings_score(self, headings_data):
+        """Calculate SEO score for headings structure."""
+        score = 0
+        if headings_data['h1_count'] == 1:
+            score += 50
+        if headings_data['h2_count'] > 0:
+            score += 50
+        return score
+
+    def _calculate_images_score(self, images_data):
+        """Calculate SEO score for images."""
+        score = 0
+        if images_data['total'] > 0:
+            alt_ratio = images_data['with_alt'] / images_data['total']
+            score = alt_ratio * 100
+        return score
+
+    def _calculate_links_score(self, links_data):
+        """Calculate SEO score for links."""
+        score = 0
+        total_links = links_data['internal'] + links_data['external']
+        if total_links > 0:
+            # Prefer a good mix of internal and external links
+            if links_data['internal'] > 0:
+                score += 50
+            if links_data['external'] > 0:
+                score += 50
+        return score
+
+    def _check_color_contrast(self, soup):
+        """Basic color contrast check."""
+        # This is a simplified version. A real implementation would need
+        # to parse CSS and calculate actual contrast ratios
+        return {
+            'status': 'manual_check_required',
+            'message': 'Color contrast check requires manual verification'
+        }
+
+    def _check_keyboard_navigation(self, soup):
+        """Check for keyboard navigation support."""
+        return {
+            'focusable_elements': len(soup.find_all(['a', 'button', 'input', 'select', 'textarea'])),
+            'tab_index': len(soup.find_all(attrs={'tabindex': True}))
+        }
+
     def analyze(self):
         try:
             if not validators.url(self.url):
@@ -229,7 +549,7 @@ class WebsiteAnalyzer:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
-            response = requests.get(self.url, headers=headers, timeout=10)
+            response = requests.get(self.url, headers=headers, timeout=self.timeout)
             soup = BeautifulSoup(response.text, 'html.parser')
 
             # Get basic information
@@ -266,6 +586,21 @@ class WebsiteAnalyzer:
             # Scan ports (if running with sufficient permissions)
             if platform.system() != "Windows":  # nmap works better on Unix-like systems
                 self.scan_ports()
+
+            # New features
+            print(f"\n{Fore.GREEN}🔍 Advanced Analysis:{Style.RESET_ALL}")
+            robots_txt_analysis = self.analyze_robots_txt()
+            print(f"Robots.txt Analysis: {robots_txt_analysis['status']}")
+            sitemap_analysis = self.analyze_sitemap()
+            print(f"Sitemap Analysis: {sitemap_analysis['status']}")
+            mobile_responsiveness = self.check_mobile_responsiveness()
+            print(f"Mobile Responsiveness: {mobile_responsiveness['mobile']['viewport_meta']}")
+            accessibility = self.analyze_accessibility()
+            print(f"Accessibility: {accessibility['score']}")
+            seo_score = self.calculate_seo_score()
+            print(f"SEO Score: {seo_score['overall_score']}")
+            screenshot = self.capture_screenshot()
+            print(f"Screenshot: {screenshot['path']}")
 
         except Exception as e:
             print(f"\n{Fore.RED}❌ Error analyzing website: {str(e)}{Style.RESET_ALL}")

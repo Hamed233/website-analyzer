@@ -10,11 +10,11 @@ setup(
     name="website-analyzer",
     version="1.0.0",
     author="Hamed Esam",
-    author_email="your.email@example.com",
+    author_email="info@albashmoparmeg.com",
     description="A comprehensive website analysis tool that provides detailed information about websites",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/website-analyzer",
+    url="https://github.com/Hamed233/website-analyzer",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",

@@ -53,6 +53,42 @@ A powerful command-line tool that provides comprehensive analysis and informatio
   - Service detection
   - Security assessment
 
+- 🤖 **Robots.txt Analysis**
+  - Parse and analyze robots.txt rules
+  - Extract allowed and disallowed paths
+  - Identify sitemap locations
+
+- 🗺️ **Sitemap Analysis**
+  - Detect and parse XML sitemaps
+  - Support for sitemap index files
+  - Extract URL information
+
+- 📱 **Mobile Responsiveness**
+  - Multi-device viewport testing
+  - Responsive design detection
+  - Screenshot comparisons
+  - Media query analysis
+
+- ♿ **Accessibility Analysis**
+  - WCAG compliance checking
+  - Alt text verification
+  - ARIA label detection
+  - Keyboard navigation testing
+  - Color contrast analysis
+
+- 📊 **SEO Score Calculation**
+  - Title optimization check
+  - Meta description analysis
+  - Heading structure evaluation
+  - Image optimization score
+  - Internal/external link ratio
+
+- 📸 **Screenshot Capture**
+  - Full-page screenshots
+  - Multi-device captures
+  - Image optimization
+  - Responsive layout verification
+
 ## 🚀 Installation
 
 ### Prerequisites
@@ -74,7 +110,7 @@ A powerful command-line tool that provides comprehensive analysis and informatio
 pip install website-analyzer
 
 # Or install from source
-git clone https://github.com/yourusername/website-analyzer.git
+git clone https://github.com/Hamed233/website-analyzer.git
 cd website-analyzer
 pip install -e .
 ```
@@ -156,6 +192,6 @@ This tool is for educational and informational purposes only. Always ensure you 
 
 ## 📧 Contact
 
-Hamed Esam - your.email@example.com
+Hamed Esam - info@albashmoparmeg.com
 
-Project Link: [https://github.com/yourusername/website-analyzer](https://github.com/yourusername/website-analyzer)
+Project Link: [https://github.com/Hamed233/website-analyzer](https://github.com/Hamed233/website-analyzer)
